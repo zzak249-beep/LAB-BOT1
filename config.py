@@ -3,6 +3,8 @@
 Los nombres replican los inputs de la estrategia Pine LCE v8. Con todo en
 valores por defecto, las señales son las del núcleo LCE v2.
 """
+import hashlib
+import json
 import os
 
 INTERVAL_MS = {
@@ -10,6 +12,26 @@ INTERVAL_MS = {
     "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "6h": 21_600_000,
     "12h": 43_200_000, "1d": 86_400_000,
 }
+
+
+# Presets = hipotesis a evaluar con el barrido (RUN_MODE=backtest); NO son parametros validados.
+# Las variables de entorno explicitas siempre ganan al preset.
+PRESETS = {
+    "fiel": {},
+    "calidad": {"min_risk_pct": 0.8, "min_rr": 1.5, "use_adx": True, "adx_min": 20.0, "use_e200_rv": True,
+                "min_stretch": 2.5, "use_e200_tp": True, "rv_min_vol": 1.0},
+    "rupturas": {"use_reversion": False, "min_risk_pct": 0.6, "min_rr": 1.5, "use_adx": True,
+                 "use_e200_dir": True, "use_struct_bo": True},
+    "reversion": {"use_breakout": False, "min_risk_pct": 0.8, "min_rr": 1.5, "use_e200_rv": True,
+                  "rev_need_sweep": True, "rv_min_vol": 1.0, "use_e200_tp": True},
+    "majors": {"symbols": "BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,DOGE-USDT,ADA-USDT,LINK-USDT,"
+                          "AVAX-USDT,TON-USDT,SUI-USDT,LTC-USDT", "min_risk_pct": 0.4, "min_rr": 1.5},
+}
+
+# Campos que NO cambian la calidad de las senales (no reinician las estadisticas)
+_FP_SKIP = {"api_key", "api_secret", "tg_token", "tg_chat", "state_dir", "log_level", "heartbeat_hours", "workers",
+            "scan_delay", "scan_on_start", "manage_interval", "mode", "demo", "run_mode", "max_positions",
+            "risk_pct", "max_lev", "leverage", "min_live_rr"}
 
 
 def _raw(name):
@@ -78,7 +100,17 @@ class Config:
         self.state_dir = _s("STATE_DIR", "/data")
         self.log_level = _s("LOG_LEVEL", "INFO").upper()
         self.signal_timeout_bars = _i("SIGNAL_TIMEOUT_BARS", 288)   # senal sin resolver -> expirada
-        self.min_live_rr = _f("MIN_LIVE_RR", 1.0)     # R:R minimo con el precio real al entrar
+        self.min_live_rr = _f("MIN_LIVE_RR", 1.0)
+        self.preset = _s("PRESET", "fiel").lower()
+        if self.preset not in PRESETS:
+            raise ValueError(f"PRESET desconocido: {self.preset} (opciones: {', '.join(PRESETS)})")
+        self.run_mode = _s("RUN_MODE", "bot").lower()               # bot | backtest | dump
+        self.backtest_days = _i("BACKTEST_DAYS", 30)
+        self.backtest_symbols = _i("BACKTEST_SYMBOLS", 40)
+        self.backtest_workers = _i("BACKTEST_WORKERS", 3)
+        self.backtest_min_n = _i("BACKTEST_MIN_N", 30)
+        self.dump_symbol = _s("DUMP_SYMBOL", "BTC-USDT").upper()
+        self.dump_days = _i("DUMP_DAYS", 3)     # R:R minimo con el precio real al entrar
 
         # ---------------- Zonas ----------------
         self.piv_len = _i("PIV_LEN", 10)
@@ -155,6 +187,12 @@ class Config:
         self.struct_len = _i("STRUCT_LEN", 5)
         self.use_struct_bo = _b("USE_STRUCT_BO", False)
         self.use_struct_exit = _b("USE_STRUCT_EXIT", False)
+        # filtros nuevos (apagados por defecto: con todo apagado = Pine v8)
+        self.min_risk_pct = _f("MIN_RISK_PCT", 0.0)     # distancia minima al SL (% del precio)
+        self.fixed_tp = _b("FIXED_TP", False)           # TP = entrada +- RR_FALLBACK x R (ignora el siguiente nivel)
+        self.rv_min_vol = _f("RV_MIN_VOL", 0.0)         # reversion: volumen relativo minimo
+        self.rv_min_adx = _f("RV_MIN_ADX", 0.0)         # reversion: ADX minimo (0 = off)
+        self.rv_max_adx = _f("RV_MAX_ADX", 0.0)         # reversion: ADX maximo (0 = off)
 
         # ---------------- Gestión y riesgo ----------------
         self.atr_len = _i("ATR_LEN", 14)
@@ -184,6 +222,18 @@ class Config:
         self.slip_pct = _f("SLIP_PCT", 0.02)        # slippage por lado (%) para el R neto de las estadisticas
         self.use_session = _b("USE_SESSION", False)
         self.session_utc = _s("SESSION_UTC", "0900-1730")
+        self.apply_overrides(PRESETS[self.preset], respect_env=True)
+
+    def apply_overrides(self, ov, respect_env=True):
+        for k, v in ov.items():
+            if respect_env and _raw(k.upper()) is not None:
+                continue
+            setattr(self, k, v)
+
+    def fingerprint(self):
+        d = {k: v for k, v in sorted(vars(self).items())
+             if k not in _FP_SKIP and not k.startswith(("backtest", "dump"))}
+        return hashlib.sha1(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
     def missing_for_trading(self):
         miss = []

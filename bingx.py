@@ -115,9 +115,11 @@ class BingX:
         d = self._request("GET", "/openApi/swap/v2/quote/ticker") or []
         return d if isinstance(d, list) else [d]
 
-    def klines(self, symbol, interval, limit=1000):
-        data = self._request("GET", "/openApi/swap/v3/quote/klines",
-                             {"symbol": symbol, "interval": interval, "limit": limit}) or []
+    def klines(self, symbol, interval, limit=1000, end_time=None):
+        params = {"symbol": symbol, "interval": interval, "limit": limit}
+        if end_time:
+            params["endTime"] = int(end_time)
+        data = self._request("GET", "/openApi/swap/v3/quote/klines", params) or []
         rows = {}
         for k in data:
             if isinstance(k, dict):
@@ -126,6 +128,23 @@ class BingX:
                 r = (int(k[0]), _f(k[1]), _f(k[2]), _f(k[3]), _f(k[4]), _f(k[5]))
             rows[r[0]] = r
         return [rows[k] for k in sorted(rows)]
+
+    def klines_range(self, symbol, interval, start_ms, end_ms=None, page=1000, max_pages=80):
+        """Historial paginado hacia atras con endTime (devuelve velas >= start_ms, ascendente).
+        Si el servidor ignorase endTime, corta en la primera pagina (el llamador detecta la cobertura)."""
+        cursor = int(end_ms or time.time() * 1000)
+        rows = {}
+        for _ in range(max_pages):
+            batch = self.klines(symbol, interval, page, end_time=cursor)
+            if not batch:
+                break
+            for r in batch:
+                rows[r[0]] = r
+            first = batch[0][0]
+            if first <= start_ms or first >= cursor:
+                break
+            cursor = first - 1
+        return [rows[k] for k in sorted(rows) if k >= start_ms]
 
     def price(self, symbol):
         d = self._request("GET", "/openApi/swap/v2/quote/price", {"symbol": symbol})

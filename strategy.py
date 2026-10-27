@@ -344,12 +344,16 @@ def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
         div_rv_s = (not cfg.rev_need_div) or bear_div_recent
         long_bo = long_bo and e200_bo_l and struct_l
         short_bo = short_bo and e200_bo_s and struct_s
-        long_rv = long_rv and e200_rv_l and div_rv_l
-        short_rv = short_rv and e200_rv_s and div_rv_s
+        adx_v = adx[i]
+        rv_ok = ((cfg.rv_min_vol <= 0 or rel_vol >= cfg.rv_min_vol)
+                 and (cfg.rv_min_adx <= 0 or (not math.isnan(adx_v) and adx_v >= cfg.rv_min_adx))
+                 and (cfg.rv_max_adx <= 0 or (not math.isnan(adx_v) and adx_v <= cfg.rv_max_adx)))
+        long_rv = long_rv and e200_rv_l and div_rv_l and rv_ok
+        short_rv = short_rv and e200_rv_s and div_rv_s and rv_ok
         long_sw = (cfg.use_sweep_sig and sweep_l and c[i] > o[i] and dn_w >= cfg.wick_ratio * rng
-                   and (not cfg.rev_with_htf or raw_bull) and e200_rv_l and div_rv_l)
+                   and (not cfg.rev_with_htf or raw_bull) and e200_rv_l and div_rv_l and rv_ok)
         short_sw = (cfg.use_sweep_sig and sweep_s and c[i] < o[i] and up_w >= cfg.wick_ratio * rng
-                    and (not cfg.rev_with_htf or raw_bear) and e200_rv_s and div_rv_s)
+                    and (not cfg.rev_with_htf or raw_bear) and e200_rv_s and div_rv_s and rv_ok)
 
         long_cand = long_bo or long_rv or long_sw
         short_cand = (short_bo or short_rv or short_sw) and not long_cand
@@ -400,7 +404,7 @@ def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
                     sl = entry - a
                 risk = entry - sl
                 room = next_sup is None or (next_sup - entry) >= risk * cfg.min_rr
-                tp = entry + risk * cfg.rr_fallback if next_sup is None else next_sup - a * cfg.tp_buffer
+                tp = entry + risk * cfg.rr_fallback if (next_sup is None or cfg.fixed_tp) else next_sup - a * cfg.tp_buffer
                 if cfg.use_e200_tp and not long_bo and e_ok and e200[i] > entry \
                         and (e200[i] - entry) >= risk * cfg.min_rr and e200[i] < tp:
                     tp = e200[i]
@@ -419,7 +423,7 @@ def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
                     sl = entry + a
                 risk = sl - entry
                 room = next_dem is None or (entry - next_dem) >= risk * cfg.min_rr
-                tp = entry - risk * cfg.rr_fallback if next_dem is None else next_dem + a * cfg.tp_buffer
+                tp = entry - risk * cfg.rr_fallback if (next_dem is None or cfg.fixed_tp) else next_dem + a * cfg.tp_buffer
                 if cfg.use_e200_tp and not short_bo and e_ok and e200[i] < entry \
                         and (entry - e200[i]) >= risk * cfg.min_rr and e200[i] > tp:
                     tp = e200[i]
@@ -436,6 +440,8 @@ def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
                 blocked = "no_permitido"
             elif not room:
                 blocked = "sin_espacio"
+            elif cfg.min_risk_pct > 0 and risk / entry * 100.0 < cfg.min_risk_pct:
+                blocked = "riesgo_corto"
             elif cfg.max_risk_atr > 0 and risk > a * cfg.max_risk_atr:
                 blocked = "riesgo_ancho"
             elif cfg.cost_mult > 0 and (risk * cfg.tp1_r / entry * 100.0) < 2.0 * cfg.fee_pct * cfg.cost_mult:

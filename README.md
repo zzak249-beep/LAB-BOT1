@@ -15,6 +15,20 @@ riesgo y el **win rate acumulado** (total y por tipo) más el del backtest rápi
   según la distancia al SL. Mide la calidad de la señal, no el PnL real de la cuenta. Las estadísticas se guardan en `/data` y sobreviven a redeploys.
 - Resumen periódico (`HEARTBEAT_HOURS`, 6 h por defecto) con win rate y embudo de filtros.
 
+## Herramientas para encontrar una configuración rentable (RUN_MODE)
+`RUN_MODE=bot` (por defecto) = señales en vivo. Cambia la variable, espera el mensaje de Telegram y vuelve a `bot`.
+
+| RUN_MODE | Qué hace |
+|---|---|
+| `backtest` | Descarga `BACKTEST_DAYS` días (30) de los `BACKTEST_SYMBOLS` (40) más líquidos, prueba ~50 configuraciones y las valida: **train** (60 %) para ordenar y **test** (40 %) que no se usó al elegir. Neto de comisión + slippage. Envía el ranking, las variables a pegar si alguna pasa ambos tramos, y `sweep.json`. Si ninguna pasa, lo dice: no operar. |
+| `dump` | Lista las señales de `DUMP_SYMBOL` de los últimos `DUMP_DAYS` días (CSV + resumen) para **compararlas con la Lista de operaciones de TradingView** y validar el port. |
+
+Filtros nuevos (apagados por defecto = Pine v8 fiel): `MIN_RISK_PCT` (SL mínimo en % del precio, ataca el problema de los stops
+pegados), `FIXED_TP`, `RV_MIN_VOL`, `RV_MIN_ADX`, `RV_MAX_ADX`.
+`PRESET=fiel|calidad|rupturas|reversion|majors`: conjuntos de hipótesis a evaluar (no validados); las variables explícitas ganan al preset.
+Al cambiar cualquier parámetro de la estrategia, las **estadísticas en vivo se reinician** automáticamente (las anteriores se guardan en `stats_prev`).
+El barrido tarda ~5-10 min; el riesgo de sobreajuste es alto con pocas semanas: valida siempre en `signals` varias semanas.
+
 ## Modos
 | TRADE_MODE | Qué hace |
 |---|---|

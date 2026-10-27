@@ -40,6 +40,16 @@ class Bot:
         self.bx = BingX(c.api_key, c.api_secret, demo=c.demo)
         self.state = State(c.state_dir)
         self.risk = RiskGuard(c, self.state)
+        # si cambia la configuracion de la estrategia, las estadisticas en vivo dejan de ser comparables: se reinician
+        meta, fp = self.state.get("meta", {}), c.fingerprint()
+        self.cfg_changed = None
+        if meta.get("fp") and meta["fp"] != fp:
+            old = Stats(self.state, c.fee_pct + c.slip_pct)
+            self.cfg_changed = old.summary()
+            self.state.put("stats_prev", old.s)
+            self.state.put("stats", {})
+        if meta.get("fp") != fp:
+            self.state.put("meta", {"fp": fp})
         self.stats = Stats(self.state, c.fee_pct + c.slip_pct)
         self.hist = History(c.fee_pct + c.slip_pct)
         self._hist_done = False
@@ -86,7 +96,10 @@ class Bot:
             f"TF {c.timeframe} · HTF {c.htf if c.use_htf else 'off'} · {len(self.universe)} símbolos\n"
             f"Endpoint: {esc(self.bx.base)}\n"
             f"Riesgo {c.risk_pct}% · Lev {c.leverage}x · Máx pos {c.max_positions}\n"
-            f"Estado persistente: {'sí' if self.state.persistent else 'NO (monta un Volume)'}")
+            f"Preset: {c.preset} · config {c.fingerprint()}\n"
+            f"Estado persistente: {'sí' if self.state.persistent else 'NO (monta un Volume)'}"
+            + (f"\n♻️ Configuración cambiada: estadísticas en vivo reiniciadas.\nAnteriores: {self.cfg_changed}"
+               if self.cfg_changed else ""))
 
     def reconcile(self):
         """Compara trades guardados con posiciones reales del exchange."""
@@ -552,11 +565,29 @@ class Bot:
             time.sleep(1.0)
 
 
+def idle(msg):
+    """Tras un backtest/volcado el servicio queda en espera (evita reinicios en bucle)."""
+    while True:
+        log.info(msg)
+        time.sleep(3600)
+
+
 def main():
     cfg = Config()
     logging.basicConfig(level=getattr(logging, cfg.log_level, logging.INFO),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
-    Bot(cfg).run()
+    if cfg.run_mode in ("backtest", "dump"):
+        from . import backtest
+        bot = Bot(cfg)
+        try:
+            (backtest.run_sweep if cfg.run_mode == "backtest" else backtest.run_dump)(bot)
+        except Exception as e:                       # noqa: BLE001
+            log.exception("fallo en %s", cfg.run_mode)
+            bot.tg.send(f"⛔ Error en {cfg.run_mode}: {esc(repr(e)[:300])}")
+        bot.tg.send("ℹ️ Terminado. Cambia RUN_MODE=bot en Railway para volver a las señales en vivo.")
+        idle(f"RUN_MODE={cfg.run_mode} terminado; pon RUN_MODE=bot")
+    else:
+        Bot(cfg).run()
 
 
 if __name__ == "__main__":
