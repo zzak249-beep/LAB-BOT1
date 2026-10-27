@@ -181,6 +181,7 @@ class Config:
         self.pause_bars = _i("PAUSE_BARS", 36)
         self.fee_pct = _f("FEE_PCT", 0.05)
         self.cost_mult = _f("COST_MULT", 0.0)
+        self.slip_pct = _f("SLIP_PCT", 0.02)        # slippage por lado (%) para el R neto de las estadisticas
         self.use_session = _b("USE_SESSION", False)
         self.session_utc = _s("SESSION_UTC", "0900-1730")
 

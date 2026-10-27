@@ -2,7 +2,7 @@ import numpy as np
 
 from lce_bot.state import State
 from lce_bot.strategy import Signal
-from lce_bot.tracker import Stats, History, resolve, fmt_wr
+from lce_bot.tracker import Stats, History, resolve, fmt_wr, cost_r
 
 
 def mk(h, l, c=None):
@@ -46,3 +46,20 @@ def test_history_counts_only_closed():
     h.add(Signal(idx=3, time=900_000, side="LONG", kind="RV", entry=100, sl=98, tp=103, rr=1.5, atr=1), d, 4, 50)
     assert h.w == 1 and h.l == 0
     assert "Win rate 100.0% (1/1)" in h.text(3.5, 10)
+
+
+def test_cost_r_and_net_stats(tmp_path):
+    # riesgo 2% del precio, coste 0.07%/lado -> 0.14% ida y vuelta = 0.07 R
+    assert cost_r(100.0, 98.0, 0.07) == __import__("pytest").approx(0.07)
+    st = State(str(tmp_path))
+    s = Stats(st, 0.07)
+    sig = Signal(idx=0, time=0, side="LONG", kind="BO", entry=100, sl=98, tp=103, rr=1.5, atr=1)
+    s.add_open("AAA-USDT", sig)
+    ev = s.update("AAA-USDT", mk([100, 101, 103], [99, 100, 101]), 50)
+    assert abs(ev[0]["r"] - 1.5) < 1e-9 and abs(ev[0]["r_net"] - 1.43) < 1e-9
+    assert abs(s.s["total_r_net"] - 1.43) < 1e-9
+    assert "R neto +1.4" in s.summary()
+    h = History(0.07)
+    d = mk([100, 101, 103, 104], [99, 100, 101, 102])
+    h.add(Signal(idx=0, time=0, side="LONG", kind="RV", entry=100, sl=98, tp=103, rr=1.5, atr=1), d, 4, 50)
+    assert abs(h.nw - 1.43) < 1e-9 and "Neto de costes" in h.text(3.5, 10)

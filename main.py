@@ -40,8 +40,8 @@ class Bot:
         self.bx = BingX(c.api_key, c.api_secret, demo=c.demo)
         self.state = State(c.state_dir)
         self.risk = RiskGuard(c, self.state)
-        self.stats = Stats(self.state)
-        self.hist = History()
+        self.stats = Stats(self.state, c.fee_pct + c.slip_pct)
+        self.hist = History(c.fee_pct + c.slip_pct)
         self._hist_done = False
         self._hist_syms = 0
         self.trades = self.state.get("trades", {})
@@ -246,7 +246,7 @@ class Bot:
         lines.append("📊 " + self.stats.summary())
         h = self.hist
         if h.w + h.l:
-            lines.append(f"🧪 Backtest reciente: {fmt_wr(h.w, h.l)}")
+            lines.append(f"🧪 Backtest reciente: {fmt_wr(h.w, h.l)} · R neto {h.nw - h.nl:+.1f}")
         return "\n".join(lines)
 
     def handle_signal(self, sym, sig):

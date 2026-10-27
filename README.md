@@ -10,8 +10,9 @@ riesgo y el **win rate acumulado** (total y por tipo) más el del backtest rápi
 - Cada señal se sigue hasta que toca SL (❌) o TP (✅); se avisa por Telegram con el R obtenido y el win rate actualizado.
 - Sin resolver tras `SIGNAL_TIMEOUT_BARS` velas (288 = 24 h) pasa a *expirada* y no cuenta en el win rate.
 - Al arrancar envía un **backtest rápido** con las últimas ~3.5 días de velas de todos los símbolos (win rate, R total, PF).
-- Criterio: primer toque SL/TP de la señal (misma vela = SL), sin comisiones ni parciales. Mide la calidad de la señal,
-  no el PnL real de la cuenta. Las estadísticas se guardan en `/data` y sobreviven a redeploys.
+- Criterio: primer toque SL/TP de la señal (misma vela = SL), sin parciales. El **win rate y el R bruto** no llevan costes;
+  el **R neto y el PF neto** restan comisión + slippage de ida y vuelta (`FEE_PCT` + `SLIP_PCT`, por lado) convertidos a R
+  según la distancia al SL. Mide la calidad de la señal, no el PnL real de la cuenta. Las estadísticas se guardan en `/data` y sobreviven a redeploys.
 - Resumen periódico (`HEARTBEAT_HOURS`, 6 h por defecto) con win rate y embudo de filtros.
 
 ## Modos
@@ -24,7 +25,7 @@ riesgo y el **win rate acumulado** (total y por tipo) más el del backtest rápi
 ## Despliegue
 1. Sube este repo a GitHub.
 2. Telegram: crea el bot con @BotFather (token) y obtén tu `chat_id` (escríbele al bot y abre `https://api.telegram.org/bot<TOKEN>/getUpdates`).
-3. Railway → New Project → Deploy from GitHub repo. Railway usa el `Procfile` (`worker: python -m lce_bot.main`).
+3. Railway → New Project → Deploy from GitHub repo. Railway usa el `Procfile` (`worker: python run.py`).
    **No definas `startCommand` en railway.toml** (choca con el Procfile y provoca crash-loop).
 4. **Añade un Volume montado en `/data`** (si no, se pierde el estado en cada redeploy).
 5. Pega las variables de `RAILWAY_VARIABLES.env`.

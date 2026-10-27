@@ -30,6 +30,16 @@ def resolve(side, entry, sl, tp, t_sig, d, timeout_bars):
     return "open", 0.0
 
 
+def cost_r(entry, sl, cost_pct_side):
+    """Coste de ida y vuelta (comision + slippage por lado) expresado en R."""
+    risk = abs(entry - sl)
+    return 0.0 if risk <= 0 else 2.0 * cost_pct_side / 100.0 * entry / risk
+
+
+def _pf(rw, rl):
+    return float("inf") if rl <= 0 else rw / rl
+
+
 def _pct(w, l):
     return None if (w + l) == 0 else 100.0 * w / (w + l)
 
@@ -42,13 +52,17 @@ def fmt_wr(w, l):
 class Stats:
     KINDS = ("BO", "RV", "SW")
 
-    def __init__(self, state):
+    def __init__(self, state, cost_pct_side=0.0):
         self.state = state
+        self.cost = cost_pct_side
         s = state.get("stats", {})
         s.setdefault("open", {})
         for k in ("wins", "losses", "expired"):
             s.setdefault(k, 0)
         s.setdefault("total_r", 0.0)
+        for k in ("net_win_r", "net_loss_r"):
+            s.setdefault(k, 0.0)
+        s.setdefault("total_r_net", 0.0)
         s.setdefault("by_kind", {})
         for k in self.KINDS:
             s["by_kind"].setdefault(k, {"w": 0, "l": 0})
@@ -76,17 +90,24 @@ class Stats:
             if res == "open":
                 continue
             del self.s["open"][key]
+            c = cost_r(o["entry"], o["sl"], self.cost)
+            net = None
             if res == "win":
                 self.s["wins"] += 1
                 self.s["by_kind"][o["kind"]]["w"] += 1
                 self.s["total_r"] += r
+                net = r - c
             elif res == "loss":
                 self.s["losses"] += 1
                 self.s["by_kind"][o["kind"]]["l"] += 1
                 self.s["total_r"] += r
+                net = r - c
             else:
                 self.s["expired"] += 1
-            events.append(dict(o, result=res, r=r))
+            if net is not None:
+                self.s["total_r_net"] += net
+                self.s["net_win_r" if net > 0 else "net_loss_r"] += abs(net)
+            events.append(dict(o, result=res, r=r, r_net=net))
         if events:
             self._save()
         return events
@@ -95,22 +116,32 @@ class Stats:
         s = self.s
         kinds = " · ".join(f"{k} {fmt_wr(s['by_kind'][k]['w'], s['by_kind'][k]['l'])}" for k in self.KINDS
                            if s["by_kind"][k]["w"] + s["by_kind"][k]["l"] > 0)
-        return (f"Win rate: {fmt_wr(s['wins'], s['losses'])} · R total {s['total_r']:+.1f}"
+        pf = _pf(s["net_win_r"], s["net_loss_r"])
+        pf_t = "n/d" if s["wins"] + s["losses"] == 0 else f"{pf:.2f}"
+        return (f"Win rate: {fmt_wr(s['wins'], s['losses'])} · R bruto {s['total_r']:+.1f}"
+                f" · R neto {s['total_r_net']:+.1f} · PF neto {pf_t}"
                 f" · abiertas {len(s['open'])} · expiradas {s['expired']}" + (f"\n{kinds}" if kinds else ""))
 
 
 class History:
     """Backtest rapido sobre las velas descargadas (senales pasadas ya resueltas)."""
 
-    def __init__(self):
+    def __init__(self, cost_pct_side=0.0):
+        self.cost = cost_pct_side
         self.w = self.l = 0
         self.rw = self.rl = 0.0
+        self.nw = self.nl = 0.0          # R neto: ganancias / perdidas acumuladas
         self.by = {k: [0, 0] for k in Stats.KINDS}
 
     def add(self, sig, d, an_n, timeout_bars):
         if sig.idx == an_n - 1:
             return
         res, r = resolve(sig.side, sig.entry, sig.sl, sig.tp, sig.time, d, timeout_bars)
+        c = cost_r(sig.entry, sig.sl, self.cost)
+        if res in ("win", "loss"):
+            net = r - c
+            self.nw += max(net, 0.0)
+            self.nl += max(-net, 0.0)
         if res == "win":
             self.w += 1
             self.rw += r
@@ -124,7 +155,8 @@ class History:
         n = self.w + self.l
         if n == 0:
             return f"📊 Backtest rápido (~{days:.1f} días, {nsym} símbolos): sin señales cerradas."
-        pf = self.rw / self.rl if self.rl > 0 else float("inf")
+        pf, pfn = _pf(self.rw, self.rl), _pf(self.nw, self.nl)
         kinds = " · ".join(f"{k} {fmt_wr(*self.by[k])}" for k in Stats.KINDS if sum(self.by[k]) > 0)
         return (f"📊 <b>Backtest rápido</b> (~{days:.1f} días, {nsym} símbolos)\n"
-                f"Win rate {fmt_wr(self.w, self.l)} · R total {self.rw - self.rl:+.1f} · PF {pf:.2f}\n{kinds}")
+                f"Win rate {fmt_wr(self.w, self.l)} · R bruto {self.rw - self.rl:+.1f} · PF {pf:.2f}\n"
+                f"💸 Neto de costes ({2 * self.cost:.2f}% ida/vuelta): R {self.nw - self.nl:+.1f} · PF neto {pfn:.2f}\n{kinds}")
