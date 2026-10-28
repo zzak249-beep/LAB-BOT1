@@ -52,6 +52,7 @@ class Analysis:
     ll3: float = float("nan")
     atr: float = float("nan")
     n: int = 0
+    counts: dict = field(default_factory=dict)
 
 
 def map_htf(cfg, t, htf):
@@ -112,11 +113,15 @@ def _in_session(cfg, t_ms):
     return (not cfg.use_session) or _in_window(cfg.session_utc, t_ms)
 
 
-def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
+def run(cfg, d, htf=None, mintick=1e-9, count_from=0) -> Analysis:
     t = np.asarray(d["t"], np.int64)
     o, h, l, c, v = (np.asarray(d[k], float) for k in ("o", "h", "l", "c", "v"))
     n = len(c)
     an = Analysis(n=n)
+
+    def bump(k):
+        an.counts[k] = an.counts.get(k, 0) + 1
+
     if n < 60:
         an.diag = {"reason": "pocas_velas"}
         return an
@@ -355,6 +360,31 @@ def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
         short_sw = (cfg.use_sweep_sig and sweep_s and c[i] < o[i] and up_w >= cfg.wick_ratio * rng
                     and (not cfg.rev_with_htf or raw_bear) and e200_rv_s and div_rv_s and rv_ok)
 
+        if t[i] >= count_from:                       # diagnostico: por que se descartan rupturas / rechazos
+            if brk_up or brk_dn:
+                bump("rupturas")
+                up = brk_up
+                if not cfg.use_breakout:
+                    bump("BO_desactivado")
+                for nm, ok in (("nube", bull_cloud if up else bear_cloud), ("htf", htf_bull if up else htf_bear),
+                               ("volumen", (not cfg.use_vol or vol_raw)), ("cuerpo", strong),
+                               ("pendiente", (not cfg.use_slope or (slope_up if up else slope_dn))),
+                               ("adx/flow/squeeze", extra_l if up else extra_s), ("ema200", e200_bo_l if up else e200_bo_s),
+                               ("estructura", struct_l if up else struct_s)):
+                    if not ok:
+                        bump("BO_falla_" + nm)
+            if rev_long or rev_short:
+                bump("rechazos")
+                lg = rev_long
+                if not cfg.use_reversion:
+                    bump("RV_desactivado")
+                for nm, ok in (("htf", not cfg.rev_with_htf or (raw_bull if lg else raw_bear)),
+                               ("barrido", not cfg.rev_need_sweep or (sweep_l if lg else sweep_s)),
+                               ("ema200", e200_rv_l if lg else e200_rv_s), ("divergencia", div_rv_l if lg else div_rv_s),
+                               ("filtros_rv", rv_ok)):
+                    if not ok:
+                        bump("RV_falla_" + nm)
+
         long_cand = long_bo or long_rv or long_sw
         short_cand = (short_bo or short_rv or short_sw) and not long_cand
 
@@ -463,6 +493,15 @@ def run(cfg, d, htf=None, mintick=1e-9) -> Analysis:
                 v_dir = 1 if side == "LONG" else -1
                 v_sl, v_tp1, v_tp2, v_entry, v_bar, v_tp1_done = sl, tp1, tp2, entry, i, False
         an.diag = diag
+        if t[i] >= count_from:
+            if diag["cand"]:
+                bump("candidatas")
+            if diag["cooldown"]:
+                bump("en_cooldown_o_trade")
+            if diag["blocked"]:
+                bump("bloq_" + diag["blocked"])
+            if diag["signal"]:
+                bump("senales")
 
     an.last_time = int(t[-1])
     an.last_close = float(c[-1])

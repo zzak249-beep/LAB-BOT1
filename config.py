@@ -230,6 +230,15 @@ class Config:
                 continue
             setattr(self, k, v)
 
+    def active_env(self):
+        """Variables de entorno de la estrategia que difieren de 'no definidas' (sin secretos ni operativas)."""
+        names = {k.upper() for k in vars(self)} | {"HTF_INTERVAL"}
+        skip = {"PRESET", "STATE_DIR", "LOG_LEVEL", "RUN_MODE", "HEARTBEAT_HOURS", "WORKERS", "SCAN_DELAY_S",
+                "SCAN_ON_START", "MANAGE_INTERVAL_S", "MAX_POSITIONS", "RISK_PCT", "MAX_LEV", "LEVERAGE"}
+        return [f"{n}={os.environ[n]}" for n in sorted(names)
+                if n in os.environ and os.environ[n].strip() != "" and n not in skip
+                and not n.startswith(("BACKTEST", "DUMP"))]
+
     def fingerprint(self):
         d = {k: v for k, v in sorted(vars(self).items())
              if k not in _FP_SKIP and not k.startswith(("backtest", "dump"))}

@@ -97,6 +97,8 @@ class Bot:
             f"Endpoint: {esc(self.bx.base)}\n"
             f"Riesgo {c.risk_pct}% · Lev {c.leverage}x · Máx pos {c.max_positions}\n"
             f"Preset: {c.preset} · config {c.fingerprint()}\n"
+            + (f"Variables fijadas: {', '.join(c.active_env()[:14])}\n" if c.active_env() else "Variables de estrategia: todas por defecto\n")
+            +
             f"Estado persistente: {'sí' if self.state.persistent else 'NO (monta un Volume)'}"
             + (f"\n♻️ Configuración cambiada: estadísticas en vivo reiniciadas.\nAnteriores: {self.cfg_changed}"
                if self.cfg_changed else ""))

@@ -134,3 +134,14 @@ def test_run_sweep_and_dump_end_to_end(monkeypatch, tmp_path):
     bot.cfg.dump_days = 3
     bt.run_dump(bot)
     assert any("Volcado" in m for m in sent) and docs[0][0].startswith("senales_")
+
+
+def test_counts_and_active_env(monkeypatch):
+    monkeypatch.setenv("MIN_RR", "3")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secreto")
+    cfg = Config()
+    assert "MIN_RR=3" in cfg.active_env() and not any("secreto" in x for x in cfg.active_env())
+    d = synth(seed=4)
+    an = strategy.run(cfg, d, None, count_from=int(d["t"][0]))
+    assert an.counts.get("rupturas", 0) + an.counts.get("rechazos", 0) > 0
+    assert any(k.startswith("BO_falla_") or k.startswith("RV_falla_") or k.startswith("bloq_") for k in an.counts)

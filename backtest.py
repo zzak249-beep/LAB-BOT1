@@ -267,8 +267,8 @@ def run_dump(bot):
     htf = load_candles(bx, cfg, sym, cfg.htf, days + 10, use_cache=False) if cfg.use_htf else None
     bot.refresh_universe(force=True)
     mt = 10.0 ** (-bot.info.get(sym, {}).get("pp", 8))
-    an = strategy.run(cfg, d, htf, mintick=mt)
     win_start = int(d["t"][-1]) - int(days * DAY)
+    an = strategy.run(cfg, d, htf, mintick=mt, count_from=win_start)
     ms = cfg.bar_ms
     rows, buf = [], io.StringIO()
     wr = csv.writer(buf)
@@ -291,5 +291,11 @@ def run_dump(bot):
             "Para comparar: en TradingView usa BINGX:" + esc(sym.replace('-', '')) + ".P, zona horaria UTC, mismos inputs que las variables, "
             "y abre 'Lista de operaciones'. La hora aquí es la de APERTURA de la vela de señal (entrada al cierre).")
     body = "\n".join(rows[-25:]) if rows else "Sin señales en la ventana."
-    tg.send(head + "\n\n<code>" + esc(body) + "</code>")
+    cn = an.counts
+    funnel = " · ".join(f"{k} {v}" for k, v in sorted(cn.items())) or "sin eventos de zona en la ventana"
+    act = cfg.active_env()
+    diag = (f"\n\n🔎 Embudo ({days} d): {funnel}\n"
+            f"⚙️ Variables fijadas: {', '.join(act) if act else 'ninguna (valores por defecto)'}\n"
+            f"Velas 5m: {len(d['t'])} ({covered_days(d):.1f} d) · HTF: {'sí' if htf is not None else 'no'} · huella {cfg.fingerprint()}")
+    tg.send(head + diag + "\n\n<code>" + esc(body) + "</code>")
     tg.send_document(f"senales_{sym}.csv", buf.getvalue().encode(), f"{sym}: señales y resultado ({days} d)")
